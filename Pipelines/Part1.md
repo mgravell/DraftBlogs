@@ -11,11 +11,12 @@ Don't take anything here as set in stone, and it is entirely possible that I've 
 Entire new frameworks don't usually get written just for fun, and this is no exception. There are a range of recurring problems in IO related systems that pipelines attempts to address in a generic way that is reusable by a wide range of systems. Some of the things it does is simply providing a reusable code base so that each consuming library doesn't need to implement it itself, but some of the things it provides are pretty radically new - requiring language enhancements and benefitting from new JIT features to optimize these specific patterns. Most of the recently released and upcoming C# language improvements relating to any combination of the `ref`, `struct`, `in` and `readonly` keywords have been driven in a large part by the requirments needed to make "pipelines" a step-change above anything that has been possible before. And ultimately, most of those things are about performance and scalability:
 
 - performance: provide performance-critical abstractions for describing chunks of memory suitable for low-level code such as network, protocol, and serialization libraries
+- performance: avoid copying blocks of memory by using a "zero copy" approach whenever possible
 - scalability: do the above with minimal allocations for most likely workloads of those low-level libraries, to avoid gen-0 collections (which are still expensive when done in large quantities)
 - scalability: provide a memory-pool concept that IO libraries can make use of to efficiently lease memory
 - scalability: do the above in a way that works well massively concurrent server applications where many connections might be inactive or have partially-complete frames
 - scalability: provide an efficient "back buffer" implementataion (i.e. input data that isn't yet complete enough to be fully processed) - without needing to repeatedly copy the *unprocessed* bits down to the start of a receive buffer
-- scalability: if it turns out that we need more "back buffer" space that we initially expected, trivially lease extra space without needing to allocate and copy over the incomplete data
+- scalability: if it turns out that we need more space that we initially expected, trivially lease extra space without needing to allocate and copy over the incomplete data
 - scalability: and do everything mentioned above in a way that works well for both synchronous and asynchronous scenarios
 
 These are complex and lofty goals, and it makes absolute sense to solve them once in a reusable way, rather than every low-level library having to solve it separately.
@@ -70,4 +71,4 @@ It might sound like this is prone to errors, but again: most of this flexibility
 
 ## Summary
 
-So far, we've looked at *why* 'pipelines' exists, and to start investigating how to use them, we've had a look at the memory pool idea that pipelines depends on. Next time, we'll start looking at "pipes" - our mechanism for getting data in and out of a system. And after that, we'll look in more detail at how we *work* with pipes - how we actually access the data that we're playing with.
+So far, we've looked at *why* 'pipelines' exists, and to start investigating how to use them, we've had a look at the memory pool idea that pipelines depends on. Next time, we'll start looking at "pipes" - our mechanism for getting data in and out of a system.
