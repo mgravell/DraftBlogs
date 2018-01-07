@@ -140,3 +140,20 @@ wb.Commit(3);
 (end of Marc suggests)
 
 ---
+
+Note that calling `Commit()` *does not* mean that the data is sent down the pipe; in most cases we will be using multiple `Alloc()` calls to write different parts of a message. Obviously we don't want to use lots of blocks each with only 3 bytes in. If the `Alloc(someSize)` call knows that the requested `someSize` won't fit, then it will need to move to a new block; *in that case*, the now-full block can be made available. Once we've finished writing, we need to tell the pipe to *really* send the current data - even if the block isn't full. To do that we use `FlushAsync()`. This method is available on the `WritableBuffer`:
+
+    wb.FlushAsync();
+
+---
+
+Marc suggests: which makes zero sense; you almost never want to flush when writing values in helper methods, because the helper method shouldn't assume you want to flush - that would lead to empty buffers, packet fragmentation, etc. Additionally, our code that uses `WritableBuffer` almost certainly deals with `Span<T>`, so needs to be sync; `FlushAsync()` needs to be async; there is an unavoidable mismatch here, and having `FlushAsync()` on `WritableBuffer` *constantly* forces you to slam against those two competing worlds. Or, even more pointlessly - when we've finished our real writing, alloc just for the flush:
+
+    // flush, dammit!
+    var wb = writer.Alloc(0);
+    wb.FlushAsync(); // does a flush internally
+
+Suggestion: move `FlushAsync()` to either `IPipeWriter` or `IOutput`.
+
+(end of Marc suggests)
+---
