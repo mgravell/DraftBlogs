@@ -34,7 +34,7 @@ The first thing we probably want to try is writing data to a pipe. Now, a lazy b
 
     // not great; don't do this
     await pipe.WriteAsync(
-        Encoding.ASCII.GetBytes("Hello, world!"));
+        Encoding.UTF8.GetBytes("Hello, world!"));
 
 you might reasonably wonder why this is "bad". Compare back to the list of objectives behind pipelines from part 1, and we've violated two of them:
 
@@ -114,6 +114,8 @@ Suggestion:
   - have `Commit(3)` on the `WritableBuffer`
 - only when `Commit()` is called does the pipe have any involvement; I know the point of this currently is to move the write head, but that's simply an implementation detail - it isn't actually *necessary* to do so until we actually have something useful we can do with it
 
+
+
 example usage:
 
 ```
@@ -137,13 +139,38 @@ span[2] = 0x30;
 wb.Commit(3);
 ```
 
+Edit: upon further investigation, it seems like what I'm discussing is kinda close to the `IOutput` usage, which once again highlights that `WritabeBuffer` perhaps isn't necessary;
+
+current `IOutput` code:
+
+```
+output.Enlarge(3);
+var span = output.GetSpan();
+span[0] = 0x10;
+span[1] = 0x20;
+span[2] = 0x30;
+output.Advance(3);
+```
+
+but I wonder whether:
+
+```
+var span = output.GetSpan(3);
+span[0] = 0x10;
+span[1] = 0x20;
+span[2] = 0x30;
+output.Commit(3);
+```
+
+is a better fit
+
 (end of Marc suggests)
 
 ---
 
 Note that calling `Commit()` *does not* mean that the data is sent down the pipe; in most cases we will be using multiple `Alloc()` calls to write different parts of a message. Obviously we don't want to use lots of blocks each with only 3 bytes in. If the `Alloc(someSize)` call knows that the requested `someSize` won't fit, then it will need to move to a new block; *in that case*, the now-full block can be made available. Once we've finished writing, we need to tell the pipe to *really* send the current data - even if the block isn't full. To do that we use `FlushAsync()`. This method is available on the `WritableBuffer`:
 
-    wb.FlushAsync();
+    await wb.FlushAsync();
 
 ---
 
@@ -151,9 +178,26 @@ Marc suggests: which makes zero sense; you almost never want to flush when writi
 
     // flush, dammit!
     var wb = writer.Alloc(0);
-    wb.FlushAsync(); // does a flush internally
+    await wb.FlushAsync(); // does a flush internally
 
 Suggestion: move `FlushAsync()` to either `IPipeWriter` or `IOutput`.
 
 (end of Marc suggests)
+
 ---
+
+Now that we've discussed how to write 0x10, 0x20, 0x30 - we can have another look at how we would write "Hello, world!" from first principles. Note that `IPipeWriter` implements the `IOutput` interface, which is intended to provide access to the methods that are useful for arbitrary helper methods, so we'll be writing an extension method on `IOutput`:
+
+    public static void WriteUtf8(
+        this IOutput output, string value)
+
+Now, this is when we start slamming into one *downside* of `Span<T>`: *historically, it didn't exist*, so large parts of the .NET framework don't know how to use it. **This is changing**, and it is likely that when pipelines is available, most key areas of the .NET framework have rich `Span<T>` support, but *today*, it can be problematic.
+
+To write a `string` as a byte-sequence, we need to use an *encoding*. Historically, this has been provided by the `Encoding` type. Let's assume that no `Span<T>`-specific version of encoding exists, and that *all we have* is `Encoding`. This can either work with arrays (`byte[]` and `string`/`char[]`) or pointers (`byte*` / `char*`). We *cannot* guarantee that we will have access to a `byte[]`, because *in the general case*, `Span<T>` ***is not limited to*** `T[]`, and we should avoid building in that dependency (even though we'd probably get away with it, because `MemoryPool` uses `byte[]` as an implementation detail).
+
+So *our escape hatch* when we don't have a `Span<T>` API is often to drop to pointers. All spans can be represented as a *managed pointer* (`ref T`), and a managed pointer - once pinned - can be treated as an *unmanaged pointer* (`T*`). This requires `unsafe` code, obviously.
+
+Let's assume that we expect our `string` to fit in a single block (not a great assumption really, but it works for now):
+
+
+
