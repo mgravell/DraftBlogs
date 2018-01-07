@@ -175,7 +175,7 @@ Note that our utility method shouldn't make any assumptions about the intent of 
 That was quite the marathon to just write a string, but it highlights a lot of the key API concepts, and shows how to minimize copies. We should expect that most of this basic functionality is readily encapsulated by library methods, so in reality we will only need this type of usage for more exotic scenarios. We should *additionally* keep in mind that the above implementation *is simplistic*: in real code, we might want to consider:
 
 - utf-8 involves multi-byte characters, so we shouldn't assume that `value.Length` bytes are sufficient
-- for very large strings, even if they only contain characters in the ASCII range, we might need to use multiple blocks and encode in chunks
+- for very large strings, even if they only contain characters in the ASCII range, we might need to use multiple blocks and encode in chunks; this means calling `Enlarge()` and `Advance()` once per loop iteration
 - we can *optimize* by asking: is there enough space *assuming every character takes the maxiumum possible width*
 to fit in a single block - if so: use a fast path
 - for short strings, even if the *worst case* doesn't fit, it might make sense to *calculate* the actual length to see whether it will *actually* fit in the available space, and if so: use a fast path
