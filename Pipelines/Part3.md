@@ -247,7 +247,7 @@ while(true)
     if (result.IsCompleted && buffer.IsEmpty)
         break;
 
-    var msg = buffer.TryReadMessage();
+    var msg = TryReadMessage(buffer);
     if (msg == null)
     {
         // if we're returning null, we didn't have
