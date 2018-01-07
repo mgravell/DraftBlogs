@@ -10,9 +10,9 @@ Don't take anything here as set in stone, and it is entirely possible that I've 
 
 A lot of the concepts discussed in this serious are going to be pretty "deep". They're going to be low-level (for C#, at least), and discussing issues that *most C# developers never face*, because some other C# developers have encapsulated it for them.
 
-**DO NOT PANIC** if you see something in here and think "what the hell is that?". It doesn't mean you are missing something - you're doing just fine. Just: there are a set of tools that are commonly needed for certain jobs, and you haven't had to do those jobs yet. If you've never written a TCP socket server that handles a protocol at the wire level, or a custom serializer, or an encryption or compression library - then yoy probably won't have needed these things and they will look unfamiliar.
+**DO NOT PANIC** if you see something in here and think "what the hell is that?". It doesn't mean you are missing something - you're doing just fine. Just: there are a set of tools that are commonly needed for certain jobs, and you haven't had to do those jobs yet. If you've never written a TCP socket server that handles a protocol at the wire level, or a custom serializer, or an encryption or compression library - then you probably won't have needed these things and they will look unfamiliar.
 
-You might even look at the code here and think "woah, that's quite a bit of work to do something simple". But: if you *are* one of the people who've had to do those things, I can pretty much guarantee that you'll be nodding along thinking things like "oh, I understand what that's doing", "yeah, I've done something just like that", and "oh, I see how that is saving me a pile of mess and making my life simpler".
+You might even look at the code here and think "woah, that's quite a bit of work to do something simple". But: if you *are* one of the people who've had to do those things, I can pretty much guarantee that you'll be nodding along thinking things like "oh, I understand what that's doing", "yeah, I've done something just like that", and "oh, I see how that is saving me a pile of mess and making my life simpler". And probably "Marc, stop going off on asides, it is distracting".
 
 If it helps, I am *utterly useles* at CSS. Embarrassingly, unbelievaby bad. 
 
