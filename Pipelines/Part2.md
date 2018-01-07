@@ -126,7 +126,7 @@ span[2] = 0x30;
 writer.Commit(3);
 ```
 
-Since the exchange type is intended to be `IOutput`, this makes perfect sense to me, and is *so much cleaner*.
+This feels *so much cleaner*.
 
 The second suggested alternative would be:
 
@@ -164,6 +164,8 @@ output.Commit(3);
 
 is a better fit
 
+However! `IOutput` is an interface, and `WritableBuffer : IOutput`. Suggestion: make the *pipe* `: IOutput` (or even `IPipeWriter : IOutput`), with `GetSpan(3)` on `IOutput` mapping to `Alloc(3)` on `IPipeWriter`. Or heck, just change `IOutput` to have a `Span<byte> Alloc(minSize` API).
+
 (end of Marc suggests)
 
 ---
@@ -180,16 +182,20 @@ Marc suggests: which makes zero sense; you almost never want to flush when writi
     var wb = writer.Alloc(0);
     await wb.FlushAsync(); // does a flush internally
 
-Suggestion: move `FlushAsync()` to either `IPipeWriter` or `IOutput`.
+Suggestion: move `FlushAsync()` to `IPipeWriter`.
 
 (end of Marc suggests)
 
 ---
 
-Now that we've discussed how to write 0x10, 0x20, 0x30 - we can have another look at how we would write "Hello, world!" from first principles. Note that `IPipeWriter` implements the `IOutput` interface, which is intended to provide access to the methods that are useful for arbitrary helper methods, so we'll be writing an extension method on `IOutput`:
+Note that the `FlushAsync()` call can *also* act to activate the reader code if it isn't already active.
+
+
+Now that we've discussed how to write 0x10, 0x20, 0x30 - we can have another look at how we would write "Hello, world!" from first principles. We'll be writing an extension method on `IPipeWriter`:
 
     public static void WriteUtf8(
-        this IOutput output, string value)
+        this IPipeWriter writer, string value)
+    {...}
 
 Now, this is when we start slamming into one *downside* of `Span<T>`: *historically, it didn't exist*, so large parts of the .NET framework don't know how to use it. **This is changing**, and it is likely that when pipelines is available, most key areas of the .NET framework have rich `Span<T>` support, but *today*, it can be problematic.
 
@@ -199,5 +205,40 @@ So *our escape hatch* when we don't have a `Span<T>` API is often to drop to poi
 
 Let's assume that we expect our `string` to fit in a single block (not a great assumption really, but it works for now):
 
+    public static unsafe void WriteUtf8(
+        this IPipeWriter writer, string value)
+    {
+        // good enough for small ASCII demo...
+        // (singe buffer, no multi-byte characters)
+        var buffer = writer.Alloc(value.Length); 
+        var span = buffer.Buffer.Span;
+        int bytesWritten;
+        fixed (byte* bytes =
+            &MemoryMarshal.GetReference(span))
+        fixed (char* chars = value)
+        {
+            bytesWritten = Encoding.UTF8.GetBytes(
+                chars, value.Length,
+                bytes, span.Length);
+        }
+        buffer.Advance(bytesWritten);
+        buffer.Commit();
+    }
+
+with our calling code:
+
+    IPipeWriter writer = pipe.Writer;
+    writer.WriteUtf8("Hello, world!");
+
+    await writer.Alloc().FlushAsync();    
+
+That was quite the marathon to just write a string, but it highlights a lot of the key API concepts, and shows how to minimize copies. We should expect that most of this basic functionality is readily encapsulated by library methods, so in reality we will only need this type of usage for more exotic scenarios. We should *additionally* keep in mind that the above implementation *is simplistic*: in real code, we might want to consider:
+
+- utf-8 involves multi-byte characters, so we shouldn't assume that `value.Length` bytes are sufficient
+- for very large strings, even if they only contain characters in the ASCII range, we might need to use multiple blocks and encode in chunks
+- we can *optimize* by asking: is there enough space *assuming every character takes the maxiumum possible width*
+to fit in a single block - if so: use a fast path
+- for short strings, even if the *worst case* doesn't fit, it might make sense to *calculate* the actual length to see whether it will *actually* fit in the available space, and if so: use a fast path
+- in the multi-block case we need to think about whether the last character at the end of one block might span two blocks; do we only write entire characters, or do we track the intermediate state?
 
 
