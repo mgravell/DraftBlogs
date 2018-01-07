@@ -217,7 +217,7 @@ public static int ReadLittleEndianInt32(
 
 Once again we've gone for a "fast path" when we have enough data in the single span, reading 4 successive bytes, then using `Skip()` to logically consume them. Conversely, if we need to use multiple spans (which should be rare), we might as well simply read 4 bytes and then compose them. Since we're pre-checking that we expect 4 bytes in the buffer, it isn't a problem to throw the `EndOfStream` exception if something goes wrong, but we could also have used a `Try*` pattern if we prefer not to throw.
 
-I'm *not* going to re-implement `ReadUtf8` against the `BufferReader`, since we've already covered utf-8 decoding more than enough - the only significant difference would be that instead of a `foreach` loop we'd have a `while` loop, and (very importantly) we need to remember to take `reader.Index` into account against each span, something like:
+I'm *not* going to re-implement `ReadUtf8` against the `BufferReader`, since we've already covered utf-8 decoding more than enough - the only significant difference would be that in the worst-case code path (multiple spans), instead of a `foreach` loop we'd have a `while` loop, and (very importantly) we need to remember to take `reader.Index` into account against each span, something like:
 
 ```
 while(bytes > 0 && !reader.End)
@@ -285,13 +285,5 @@ while(true)
     }
 }
 ```
-while (running)
-{
-    await data
-    if (have < 4 bytes) push back and try again later;
-    len = parse 4 bytes
-    if (have < len bytes) push back and try again later;
-    message = decode len bytes as utf8
-    process message
-    record 4 + len bytes as consumed
-}
+
+So, we've explored how to use the `IPipeReader` API, using `ReadOnlyBuffer` and `BufferReader` - and how to `Advance()` through the pipe. Next up, we'll look at how we can actually *do things* with pipes - how we can plumb systems together using pipelines.
