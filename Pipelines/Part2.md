@@ -34,7 +34,7 @@ The first thing we probably want to try is writing data to a pipe. Now, a lazy b
 
     // not great; don't do this
     await pipe.WriteAsync(
-        Encoding.UTF8.GetBytes("Hello, world!"));
+        Encoding.UTF8.GetBytes("Hello, world!\r\n"));
 
 you might reasonably wonder why this is "bad". Compare back to the list of objectives behind pipelines from part 1, and we've violated two of them:
 
@@ -228,7 +228,7 @@ Let's assume that we expect our `string` to fit in a single block (not a great a
 with our calling code:
 
     IPipeWriter writer = pipe.Writer;
-    writer.WriteUtf8("Hello, world!");
+    writer.WriteUtf8("Hello, world!\r\n");
 
     await writer.Alloc().FlushAsync();    
 
@@ -241,4 +241,10 @@ to fit in a single block - if so: use a fast path
 - for short strings, even if the *worst case* doesn't fit, it might make sense to *calculate* the actual length to see whether it will *actually* fit in the available space, and if so: use a fast path
 - in the multi-block case we need to think about whether the last character at the end of one block might span two blocks; do we only write entire characters, or do we track the intermediate state?
 
+Which are all good reasons why we shouldn't normally expect to have to write our own string encode methods; it turns out that strings are actually really awkward!
 
+The one thing we still might want to do is to tell the pipe that we've finished sending - essentially closing the pipe in such a way that the *reader* knows that no more data should be expected; fortunately, this is simple:
+
+    writer.Complete();
+
+It has been a long journey, but we've looked the fundamentals of creating a pipe and writing to it with the `IPipeWriter` API. We've introduced `Memory<T>` and `Span<T>`, and seen how to work with them. And we've put some data into a pipe for a receiver to consume. In the next part, we'll look at *consuming* data from a pipe.
