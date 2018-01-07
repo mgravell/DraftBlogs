@@ -1,4 +1,4 @@
-# Pipelines Part 2 - Pipes
+# Pipelines Part 2 - Pipes and Writers
 
 In part 1 we had a look at what problems attempt to solve and introduced the "memory pool". So now let's see what we can do with it by introducing the "pipe" and comparing it to the familiar `Stream`. Before we can do that we need to define some configuration options (`PipeOptions`) - the most important of which is : the `MemoryPool`:
 
@@ -47,9 +47,13 @@ First, we ask the writer for some space to write into; in this case, we only wan
 
     WritableBuffer wb = writer.Alloc(3);
 
-A `WritableBuffer` represents the state of an in-progress attempt to write, and essentially provides us with access to part of a *block* obtained from the memory pool (that we looked at in part 1). Usually, we will be writing lots of things at the same time, so by specifying the number of bytes we want to write, the pipe can check whether there is enough space for the 3 bytes at the end of the *current* block, and if so it can allow us to keep appending there; if there were only 2 bytes left (or no active block at all), it can consider the previous block as "done", request a new block from the memory pool, and make the fresh block available to us. An alternative approach is to just use `writer.Alloc()` *without* specifying an amount to ensure; in that case, it is the consumer's job to check how much space is available in the `WritableBuffer`, and only write that much - then request a new one. This is especially important when handling larger quantities of data, an *in particular* when the amount of data that we want to write might be larger than the block size of the memory pool, since `writer.Alloc(hugeSize)` is likely to fail.
+A `WritableBuffer` represents the state of an in-progress attempt to write, and essentially provides us with access to successive parts of *block*s obtained from the memory pool (that we looked at in part 1). The `WritableBuffer` maintains a logical position of *what we've written* - which might cover multiple blocks.
 
-Once we have the `WritableBuffer`, we need to write to it. It provides a property that provides the *unused space in the block*:
+Usually, we will be writing lots of things at the same time, so by specifying the number of bytes we want to write, the pipe can check whether there is enough space for the 3 bytes at the end of the *current* block on the pipe, and if so it can allow us to keep appending there; if there were only 2 bytes left (or no active block at all), it can consider the previous block as "done", request a new block from the memory pool, and make the fresh block available to us.
+
+An alternative approach is to just use `writer.Alloc()` *without* specifying an amount to ensure; in that case, it is the consumer's job to check how much space is available in the `WritableBuffer`, and only write that much - then request a new one. This is especially important when handling larger quantities of data, an *in particular* when the amount of data that we want to write might be larger than the block size of the memory pool, since `writer.Alloc(hugeSize)` is likely to fail.
+
+Once we have the `WritableBuffer`, we need to write to it. It provides a property that provides the *unused space in the active block*:
 
     Memory<byte> memory = wb.Buffer;
 
@@ -84,118 +88,55 @@ wb.Advance(3);
 wb.Commit();
 ```
 
-The `Advance(3)` tells the buffer that we have *actually* written 3 bytes - if we access `wb.Buffer` again, we'll find that the `Memory<byte>` we get back is now 3 shorter (and it  now starts 3 bytes further into the block).
+The `Advance(3)` tells the buffer that we have *actually* written 3 bytes - if we access `wb.Buffer` again, we'll find that the `Memory<byte>` we get back is now 3 shorter (and it  now starts 3 bytes further into the block). In the cases when we might need to write multiple blocks, we can use `Ensure(size)` to make sure that we have a required amount of space for the next operation.
 
-The `Commit()` tells the pipe that we're finished with that `WritableBuffer`.
+The `Commit()` tells the pipe that we're finished with that `WritableBuffer` and to consider the written bytes available for consumption. Once `Commit()` has been called, it is not possible to add more data to it.
+
+
 
 ---
 
-Marc suggests: this feels backwards; sorry, but it does.
+Marc suggests:
 
-Alternative API suggestion and thoughts:
+- the current API to get a span is awkward
+- it is very messy having two "size" operations (`Alloc` and `Ensure`)
 
-- a writable buffer only ever accesses a single span
-- it will be used in sync code, since the caller needs a span
-- there's lots of layers you need to step through currently: `.Buffer.Span`
-- the `Advance()` feels heavy - it needs another `.Buffer.Span` to be useful
-- `Advance` goes back to the pipe, but... without good reason
-
-Suggestion:
-
-- the current API feels heavy and awkward, with unnecessary steps that actively harm performance (lots of slicing and `.Memory.Span` usage)
-- in most real uses, you will be using `Alloc` repeatedly to write additively to the same block; this might be for multiple independent values via extension methods on `IOutput`, or it might be a single large value such as encoding a large string, with it looping over multiple `Alloc`s
-- remove `Advance()` completely; there's no benefit to it - any *useful* usage of it requires you to keep slicing a span; let the *consumer* keep track of the offset and just hold a `Span<byte>` once
-- move to `Commit(3)` which acts like `Advance(3)` + `Commit()` does currently
-- remove `WritableBuffer` *completely*
-  - have `Alloc()` *simply return the span*
-  - have `Commit(3)` *on the `IOutput` / `IPipeWriter`
-- alternative to that:
-  - make `WritableBuffer` a `ref struct` and have it hold a `Span<byte>`, not a `Memory<byte>`
-  - have `Commit(3)` on the `WritableBuffer`
-- only when `Commit()` is called does the pipe have any involvement; I know the point of this currently is to move the write head, but that's simply an implementation detail - it isn't actually *necessary* to do so until we actually have something useful we can do with it
-
-
+how about we make `Alloc` parameterless and just create the `WritableBuffer`, remove `.Buffer`, and delegate getting the span to `Ensure`, perhaps renaming it to `GetSpan()`? 
 
 example usage:
 
 ```
-var span = writer.Alloc(3);
+var bw = writer.Alloc();
+var span = bw.GetSpan(3);
 span[0] = 0x10;
 span[1] = 0x20;
 span[2] = 0x30;
-writer.Commit(3);
+writer.Advance(3);
+//...
+writer.Commit();
 ```
 
 This feels *so much cleaner*.
 
-The second suggested alternative would be:
-
-```
-var wb = writer.Alloc(3);
-var span = wb.Span;
-span[0] = 0x10;
-span[1] = 0x20;
-span[2] = 0x30;
-wb.Commit(3);
-```
-
-Edit: upon further investigation, it seems like what I'm discussing is kinda close to the `IOutput` usage, which once again highlights that `WritabeBuffer` perhaps isn't necessary;
-
-current `IOutput` code:
-
-```
-output.Enlarge(3);
-var span = output.GetSpan();
-span[0] = 0x10;
-span[1] = 0x20;
-span[2] = 0x30;
-output.Advance(3);
-```
-
-but I wonder whether:
-
-```
-var span = output.GetSpan(3);
-span[0] = 0x10;
-span[1] = 0x20;
-span[2] = 0x30;
-output.Commit(3);
-```
-
-is a better fit
-
-However! `IOutput` is an interface, and `WritableBuffer : IOutput`. Suggestion: make the *pipe* `: IOutput` (or even `IPipeWriter : IOutput`), with `GetSpan(3)` on `IOutput` mapping to `Alloc(3)` on `IPipeWriter`. Or heck, just change `IOutput` to have a `Span<byte> Alloc(minSize` API).
+I strongly suggest that this should be the case for `IOutput` too; the `Enlarge` and `GetSpan()` should proably be merged in the same way.
 
 (end of Marc suggests)
 
 ---
 
-Note that calling `Commit()` *does not* mean that the data is sent down the pipe; in most cases we will be using multiple `Alloc()` calls to write different parts of a message. Obviously we don't want to use lots of blocks each with only 3 bytes in. If the `Alloc(someSize)` call knows that the requested `someSize` won't fit, then it will need to move to a new block; *in that case*, the now-full block can be made available. Once we've finished writing, we need to tell the pipe to *really* send the current data - even if the block isn't full. To do that we use `FlushAsync()`. This method is available on the `WritableBuffer`:
+Note that calling `Commit()` *does not* guarantee that the data actually goes to the reader; the `Pipe` will assume that we're probably about to add more to the last block. To ensure that it is made availab, we use `FlushAsync()`. This method is available on the `WritableBuffer`:
 
     await wb.FlushAsync();
-
----
-
-Marc suggests: which makes zero sense; you almost never want to flush when writing values in helper methods, because the helper method shouldn't assume you want to flush - that would lead to empty buffers, packet fragmentation, etc. Additionally, our code that uses `WritableBuffer` almost certainly deals with `Span<T>`, so needs to be sync; `FlushAsync()` needs to be async; there is an unavoidable mismatch here, and having `FlushAsync()` on `WritableBuffer` *constantly* forces you to slam against those two competing worlds. Or, even more pointlessly - when we've finished our real writing, alloc just for the flush:
-
-    // flush, dammit!
-    var wb = writer.Alloc(0);
-    await wb.FlushAsync(); // does a flush internally
-
-Suggestion: move `FlushAsync()` to `IPipeWriter`.
-
-(end of Marc suggests)
-
----
 
 Note that the `FlushAsync()` call can *also* act to activate the reader code if it isn't already active.
 
 
-Now that we've discussed how to write 0x10, 0x20, 0x30 - we can have another look at how we would write "Hello, world!" from first principles. We'll be writing an extension method on `IPipeWriter`:
+Now that we've discussed how to write 0x10, 0x20, 0x30 - we can have another look at how we would write "Hello, world!" from first principles. We'll be writing an extension method; we could start by extending `IPipeWriter` or `WritableBuffer`, but this would then only usable by pipelines-related code. There is an abstraction that we can use instead: `IOutput`. This works very similarly to `WritableBuffer`, and indeed `WritableBuffer` implements `IOutput`. But recall that `WritableBuffer` is a value-type (`struct`); this means that we also shouldn't extend `IOutput`, as that would require *boxing* - we should instead extend `T where T : IOutput`:
 
-    public static void WriteUtf8(
-        this IPipeWriter writer, string value)
-    {...}
+    public static unsafe void WriteUtf8<T>(
+        this T output, string value)
+        where T : IOutput
+    { ... }
 
 Now, this is when we start slamming into one *downside* of `Span<T>`: *historically, it didn't exist*, so large parts of the .NET framework don't know how to use it. **This is changing**, and it is likely that when pipelines is available, most key areas of the .NET framework have rich `Span<T>` support, but *today*, it can be problematic.
 
@@ -203,34 +144,33 @@ To write a `string` as a byte-sequence, we need to use an *encoding*. Historical
 
 So *our escape hatch* when we don't have a `Span<T>` API is often to drop to pointers. All spans can be represented as a *managed pointer* (`ref T`), and a managed pointer - once pinned - can be treated as an *unmanaged pointer* (`T*`). This requires `unsafe` code, obviously.
 
-Let's assume that we expect our `string` to fit in a single block (not a great assumption really, but it works for now):
+Let's assume that we expect our `string` to fit in a single block (not a great assumption really, but it works for our example):
 
-    public static unsafe void WriteUtf8(
-        this IPipeWriter writer, string value)
+    public static unsafe void WriteUtf8<T>(
+        this T output, string value)
+        where T : IOutput
     {
-        // good enough for small ASCII demo...
-        // (singe buffer, no multi-byte characters)
-        var buffer = writer.Alloc(value.Length); 
-        var span = buffer.Buffer.Span;
+        // good enough for ASCII demo...
+        output.Enlarge(value.Length);
+        var span = output.GetSpan();
         int bytesWritten;
-        fixed (byte* bytes =
-            &MemoryMarshal.GetReference(span))
+        fixed (byte* bytes = &MemoryMarshal.GetReference(span))
         fixed (char* chars = value)
         {
             bytesWritten = Encoding.UTF8.GetBytes(
                 chars, value.Length,
                 bytes, span.Length);
         }
-        buffer.Advance(bytesWritten);
-        buffer.Commit();
+        output.Advance(bytesWritten);
     }
 
-with our calling code:
+Note that our utility method shouldn't make any assumptions about the intent of the caller - they may wish to write more data into the block, so it shouldn't `Commit()` the data. So our calling code becomes:
 
     IPipeWriter writer = pipe.Writer;
-    writer.WriteUtf8("Hello, world!\r\n");
-
-    await writer.Alloc().FlushAsync();    
+    
+    var buffer = writer.Alloc(); 
+    buffer.WriteUtf8("Hello, world!\r\n");
+    await buffer.FlushAsync(); // flush calls commit
 
 That was quite the marathon to just write a string, but it highlights a lot of the key API concepts, and shows how to minimize copies. We should expect that most of this basic functionality is readily encapsulated by library methods, so in reality we will only need this type of usage for more exotic scenarios. We should *additionally* keep in mind that the above implementation *is simplistic*: in real code, we might want to consider:
 
