@@ -247,4 +247,4 @@ The one thing we still might want to do is to tell the pipe that we've finished 
 
     writer.Complete();
 
-It has been a long journey, but we've looked the fundamentals of creating a pipe and writing to it with the `IPipeWriter` API. We've introduced `Memory<T>` and `Span<T>`, and seen how to work with them. And we've put some data into a pipe for a receiver to consume. In the next part, we'll look at *consuming* data from a pipe.
+It has been a long journey, but we've looked the fundamentals of creating a pipe and writing to it with the `IPipeWriter` API. We've introduced `Memory<T>` and `Span<T>`, and seen how to work with them. We've looked at how to drop to `unsafe` code against a `Span<T>` if we need to. And we've put some data into a pipe for a receiver to consume. In the next part, we'll look at *consuming* data from a pipe.
