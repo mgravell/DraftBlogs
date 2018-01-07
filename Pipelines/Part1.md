@@ -6,6 +6,16 @@
 
 Don't take anything here as set in stone, and it is entirely possible that I've misunderstood some things, or have missed subtle nuance and context. My "role" in the pipelines work, if that is even the right word, is: interested API consumer and occasional contributor.
 
+## A foreword
+
+A lot of the concepts discussed in this serious are going to be pretty "deep". They're going to be low-level (for C#, at least), and discussing issues that *most C# developers never face*, because some other C# developers have encapsulated it for them.
+
+**DO NOT PANIC** if you see something in here and think "what the hell is that?". It doesn't mean you are missing something - you're doing just fine. Just: there are a set of tools that are commonly needed for certain jobs, and you haven't had to do those jobs yet. If you've never written a TCP socket server that handles a protocol at the wire level, or a custom serializer, or an encryption or compression library - then yoy probably won't have needed these things and they will look unfamiliar.
+
+You might even look at the code here and think "woah, that's quite a bit of work to do something simple". But: if you *are* one of the people who've had to do those things, I can pretty much guarantee that you'll be nodding along thinking things like "oh, I understand what that's doing", "yeah, I've done something just like that", and "oh, I see how that is saving me a pile of mess and making my life simpler".
+
+If it helps, I am *utterly useles* at CSS. Embarrassingly, unbelievaby bad. 
+
 ## Ultra high level: what problems do 'pipelines' solve?
 
 Entire new frameworks don't usually get written just for fun, and this is no exception. There are a range of recurring problems in IO related systems that pipelines attempts to address in a generic way that is reusable by a wide range of systems. Some of the things it does is simply providing a reusable code base so that each consuming library doesn't need to implement it itself, but some of the things it provides are pretty radically new - requiring language enhancements and benefitting from new JIT features to optimize these specific patterns. Most of the recently released and upcoming C# language improvements relating to any combination of the `ref`, `struct`, `in` and `readonly` keywords have been driven in a large part by the requirments needed to make "pipelines" a step-change above anything that has been possible before. And ultimately, most of those things are about performance and scalability:
