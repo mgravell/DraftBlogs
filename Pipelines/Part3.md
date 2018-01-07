@@ -217,7 +217,28 @@ public static int ReadLittleEndianInt32(
 
 Once again we've gone for a "fast path" when we have enough data in the single span, reading 4 successive bytes, then using `Skip()` to logically consume them. Conversely, if we need to use multiple spans (which should be rare), we might as well simply read 4 bytes and then compose them. Since we're pre-checking that we expect 4 bytes in the buffer, it isn't a problem to throw the `EndOfStream` exception if something goes wrong, but we could also have used a `Try*` pattern if we prefer not to throw.
 
-I'm *not* going to re-implement `ReadUtf8` against the `BufferReader`, since we've already covered utf-8 decoding more than enough - but let's assume we also have a `ReadUtf8` extension method against `BufferReader` that takes a number of bytes. Now we can write our server method:
+I'm *not* going to re-implement `ReadUtf8` against the `BufferReader`, since we've already covered utf-8 decoding more than enough - the only significant difference would be that instead of a `foreach` loop we'd have a `while` loop, and (very importantly) we need to remember to take `reader.Index` into account against each span, something like:
+
+```
+while(bytes > 0 && !reader.End)
+{
+    var span = reader.Span;
+    fixed (byte* bytes = &MemoryMarshal.GetReference(span))
+    {
+        int bytesThisSpan = Math.Min(
+            bytes, span.Length - reader.Index);
+
+        int charsAdded = decoder.GetChars(
+            bytes + reader.Index, bytesThisSpan,
+            chars + charsWritten,
+            charsSpace, flush: false);
+        // ...
+    }
+} 
+if (bytes != 0) throw new EndOfStreamException();
+```
+
+So, with the above, let's assume we also have a `ReadUtf8` extension method against `BufferReader` that takes a number of bytes. Now we can write our server method:
 
 ```
 public string TryReadMessage(in ReadOnlyBuffer buffer)
