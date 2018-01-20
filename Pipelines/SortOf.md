@@ -1,6 +1,6 @@
 # A Sort Of Problem
 
-I *love* interesting questions, especially when they directly relate to things I need to do. A great question came up on Stack Overflow today about how to efficiently sort large data. I gave an answer, but there's *so much more* we can say on the topic, so I thought I'd turn it into a blog entry, exploring pragmatic ways to improve sort performance when dealing with non-trivial amounts of data.
+I *love* interesting questions, especially when they directly relate to things I need to do. A great question came up on Stack Overflow today about [how to efficiently sort large data](https://stackoverflow.com/q/48345753/23354). I gave an answer, but there's *so much more* we can say on the topic, so I thought I'd turn it into a blog entry, exploring pragmatic ways to improve sort performance when dealing with non-trivial amounts of data. In particular, this is remarkably similar to time I've spent trying to make our "tag engine" faster.  
 
 ## The problem
 
@@ -10,6 +10,8 @@ So, the premise is this:
 - we have a large number of these entities - lets say 16M+
 - we want to sort this data using a sort that considers multiple properties - "this, then that"
 - and we want it to be fast
+
+Note that sorting data when it is already sorted or nearly-sorted is *usually* cheap under most common algorithms, so I'm going to be focusing only on the initial painful sort when the data is not at all sorted.
 
 Because we're going to have so many of them, and they are going to be basic storage types only, this is a good scenario to consider a `struct`, and I was delighted to see that the OP in the question had already done this. We'll play with a few of the properties (for sorting, etc), but to simulate the usual context, there will be extra stuff that isn't relevant to the question, so we'll pad the size of the struct with some dummy fields up to 64 bytes. So, something like:
 
@@ -269,7 +271,7 @@ But we're still paying a lot of overhead from having to move around those big st
 
 Rather than sorting our `SomeType[]` array, we could instead *leave that data alone*, forever. Never move the items around (although it is usually fine to replace them with updates). This has multiple advantages, but the one we're keen on is the reduction of cost copying the data.
 
-So; we can declare an `int[] index` that is our *index* - it just tells us the offsets to look in the *actual* data. We can sort that index *as though* it were the actual data, and just make sure we go through the index. We need to initialize the index as well as the composite sortable value (although we can re-use the positions if we are re-sorting the data, as usually the data doesn't move much between cycles - we'll get another huge boost on re-sorts when the data hasn't drifted much):
+So; we can declare an `int[] index` that is our *index* - it just tells us the offsets to look in the *actual* data. We can sort that index *as though* it were the actual data, and just make sure we go through the index. We need to initialize the index as well as the composite sortable value (although we can re-use the positions if we are re-sorting the data, as usually the data doesn't move much between cycles - we'll get another huge boost on re-sorts when the data hasn't drifted much; we *do not* need to reset the index when re-sorting the same data):
 
 ```
 for (int i = 0; i < data.Length; i++)
@@ -313,3 +315,5 @@ So there we go; I've explored some common approaches to improrving sort performa
 We've seen performance range from 17 seconds for LINQ, 8 seconds for the 3 basic sort APIs, then 4 seconds for our dual array sorts, 3 seconds for the indexed sort, and finally 2.5 seconds with our hacked and debased version.
 
 Not bad for a night's work!
+
+All the code discussed here is [avaiable on github](https://github.com/mgravell/SortOfProblem).
