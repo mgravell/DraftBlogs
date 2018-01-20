@@ -66,3 +66,26 @@ public void Invoke()
 ```
 
 Here we're also using `stackalloc` to do all our counting in the stack space, rather than allocating a count buffer per worker. This is fine, since we'll typically be dealing with values like `r=4` (`CountLength=16`). Even for larger *reasonable* `r`, the stack space is fine. We could very reasonably put an upper bound on `r` of `16` if we wanted to be sure.
+
+Our calling code is virtually idental - all we're doing is changing the internal implementation:
+
+```
+Helpers.RadixSortParallel(sortKeys, index, keysWorkspace, valuesWorkspace, r);
+```
+
+So what does this do for performance? Note: I'm using `Environment.ProcessorCount * 2` workers, but we could play with other values.
+
+I get
+
+- r=2: 3600ms
+- r=4: 1800ms
+- r=8: 1200ms
+- r=16: 2000ms
+
+So; we don't get a *vast* improvement really - our key benefit comes from simply choosing a suitable `r` for our data, like `r=8`.
+
+## Throws down gauntlet
+
+So; so far we've gone from 17s (LINQ) to 1.2s (radix sort, single-threaded or parallel). What more can we do? Can we parallelize the second half of radix sort? Can we try a completely different sort? Can we combine our index and keys so we are performing a single array sort? Can we make use of some obscure CPU instructions to perform 128-bit (or wider) operations to combine our existing 64-bit key and 32-bit value?
+
+If you have more ideas, please feel free to fork and PR [from here](https://github.com/mgravell/SortOfProblem).
