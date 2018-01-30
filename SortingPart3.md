@@ -44,6 +44,8 @@ unsafe uint Sortable (float value)
 
 These two simple transformation - applied to our target values - will form the central theme of this entry.
 
+[###missing: (baseline) performance data###]
+
 ## A negative sign of the times
 
 What's faster than performing a fast operation? *Not* performing a fast operation. The way radix sort works is by looking at the sort values `r` bits at a time (commonly 4, 8, 10, but any number is valid) and for that block of bits: counting how many candidates are in each of the `1 << r` possible buckets. So if `r` is 3, we have 8 possible buckets. From that it computes target offsets for each group: if there are 27 with in bucket 0, 12 in bucket 1, 3 in bucket 2, etc - then *when sorted* buckete 0 will start at offset 0, bucket 1 at offset 27, bucket 2 at offset 39, bucket 3 at offset 41 etc - just by accumulating the counts. But this breaks if we have signed numbers.
@@ -96,6 +98,8 @@ unsafe int ToRadix (float value)
 
 A nice side-effect of this is that it is self-reversing: we can apply the exact same bit operations to convert from 1s-complement back to a sign bit.
 
+[###missing: performance data###]
+
 ## Blocking ourselves out
 
 We have a large chunk of data, and we want to perform a transformation on each value. So far, we've looked at a per-value transformation function (`Sortable`), but that means the overhead of a call per-value (which may or may not get inlined, depending on the complexity, and how we resolve the method - i.e. does it involve a `virtual` call to a type that isn't reliably known), and makes it hard for us to apply nuclear options to optimize.
@@ -131,6 +135,8 @@ unsafe void ToRadix(float[] source, int[] destination)
 ```
 
 How much of a speed improvement this makes depends a lot on whether the JIT managed to inline the IL from the original version. It is usually a good win by itself, but more importantly: it is a key stepping stone to further optimizations.
+
+[###missing: performance data###]
 
 ## Safely spanning the performance chasm
 
@@ -226,6 +232,8 @@ public void ToRadix(Span<uint> values, Span<uint> destination)
 
 The code is getting simpler, while retaining performance *and* becoming more generic-friendly; and we haven't needed to use a single `unsafe`. You'll have to excuse me an `Unsafe.SizeOf<T>()` - despite the name, this isn't *really* an "unsafe" operation in the usual sense - this is simply a wrapper to the `sizeof` IL instruction that is *perfectly well defined* for all `T` that are usable in generics. It just isn't directly available in safe C#.
 
+[###missing: performance data###]
+
 ## Taking up tree surgery: prune those branches
 
 Something that gnaws at my soul in where we've got to is that it includes a branch - an `if` test, essentially - in the inner part of the loop. Actually, there's two and they're both hidden. The first is in the `for` loop, but the one I'm talking about here is the one hidden in the ternary condition operation, `a ? b : c`. CPUs are very clever about branching, with branch prediction and other fancy things - but it can still stall the instruction pipeline, especially if the prediction is wrong. If only there was a way to rewrite that operation to not need a branch. I'm sure you can see where this is going.
@@ -285,6 +293,8 @@ public void ToRadix(Span<uint> values, Span<uint> destination)
 
 This might look more complicated, but it is **very** CPU-friendly: it pipelines very well, and doesn't involve any branches for it to worry about. Doing a few extra bit operations is *nothing* to a CPU - especially if they can be pipelined. Long instruction pipelines are actually a *good* thing to a CPU - compared to a branch or something that might involve a cache miss, at least.
 
+[###missing: performance data###]
+
 ## Why do one thing at a time?
 
 OK, so we've got a nice branchless version, and the world looks great. We've made significant improvements. But we can still get *much better*. At the moment we're processing each value one at a time, but as it happens, this is a perfect scenario for *vectorization* via [SIMD ("Single instruction, multiple data")](https://en.wikipedia.org/wiki/SIMD).
@@ -339,7 +349,9 @@ We can now loop over the *vectors* available in the cast spans - loading an enti
 Next, we need to think about that `// TODO` - what are we actually going to *do* here? If you've already re-written your inner logic to be branchless, there's actually a very good chance that it will be a like-for-like translation of your branchless code. In fact, it turns out that the ternary conditional scenario we're looking at here is *so common* that there are vectorized operations *precisely to do it*; the "conditional select" vectorized CPU instruction can essentially be stated as:
 
     // result conditionalSelect(condition, left, right)
-    result = (condtion & left) | (~condition & right);
+    result = (condition & left) | (~condition & right);
+
+Where `condition` is *usually* either all-zeros or all-ones (but it doesn't have to be; if you want to pull different bits from each value, you can do that too).
 
 This intrinsic is exposed directly on `Vector`, so our missing code becomes simply:
 
@@ -357,3 +369,20 @@ This intrinsic is exposed directly on `Vector`, so our missing code becomes simp
 
 Note that I've pre-loaded a vector with the MSB value (which creates a vector with that value in every cell), and I've switched to using a `>` test instead of a bit test and shift. Partly, this is because the vectorized eqaulity / inequality operations *expect* this kind of usage, and very kindly return `-1` as their true value - using the result to directly feed "conditional select".
 
+[###missing: performance data###]
+
+A reasonable range of common operations are available on [`Vector`](https://msdn.microsoft.com/en-us/library/system.numerics.vector(v=vs.111).aspx) and [`Vector<T>`](https://msdn.microsoft.com/en-us/library/dn858385(v=vs.111).aspx). If you need exotic operations like "gather", you might need to wait until [`System.Runtime.Intrinsics`](https://github.com/dotnet/corefx/blob/master/src/System.Runtime.Intrinsics/ref/System.Runtime.Intrinsics.cs) lands. One key difference here is that `Vector<T>` exposes the *common intersection* of operations that might be available (with different widths) against *different* CPU instruction sets, where as `System.Runtime.Intrinsics` aims to expose the *underlying* intrinsics - giving access to the full range of instructions, but forcing you to code specifically to a chosen instruction set (or possibly having two implementations - one for AVX and one for AVX2). This is simply because there isn't a uniform API surface between generatons and vendors - it isn't simply that you get the same operations with different widths: you get different operations too. So you'd typically be checking `Aes.IsSupported`, `Avx2.IsSupported`, etc. Being realistic: `Vector<T>` is what we have *today*, and it worked damned well.
+
+## Summary
+
+We've looked at a range of advanced techniques for improving performance of critical loops of C# code, including (to repeat the list from the start):
+
+- using knowledge of how signed data works to avoid having to transform between them
+- performing operations in blocks rather than per value to reduce calls
+- using `Span<T>` as a replacemment for `unsafe` code and unmanaged pointers, allowing you to get very high performance even in 100% managed/safe code
+- investigating branch removal as a performance optimization of critical loops
+- vectorizing critical loops to do the same work with significantly fewer CPU operations
+
+And we've seen *dramatic* improvements to the performance. Hopefully, some or all of these techniques will be applicable to your own code. Either way, I hope it has been an interesting diversion.
+
+Next time: practical parallelization
