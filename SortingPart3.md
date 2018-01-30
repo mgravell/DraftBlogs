@@ -16,6 +16,8 @@ In this episode, we're going to look at how we can significantly improve the per
 
 Hopefully, as a follow up after this one, I'll look at pratical guidance on *parallelizing* this same work to spread the load over available cores.
 
+Key point: the main purpose of these words is **not** to discuss how to implement a radix sort - in fact, we don't even do that. Instead, it uses *one small part* of radix sort as an example problem with which to discuss **much broader** concepts of performance optimization in C# / .NET.
+
 Obviously I can't cover the entire of radix sort for these, so I'm going to focus on one simple part: composing the radix for sorting. To recall, a naive implementation of radix sort requires unsigned keys, so that the data is naturally sortable in their binary representation. Signed integers and floating point numbers don't follow this layout, so in part 1 we introduced some basic tools to change between them:
 
 ```
