@@ -44,7 +44,13 @@ unsafe uint Sortable (float value)
 
 These two simple transformation - applied to our target values - will form the central theme of this entry.
 
-[###missing: (baseline) performance data###]
+To measure performance, I'll be using the inimitable [BenchmarkDotNet](https://www.nuget.org/packages/BenchmarkDotNet/), looking at multiple iterations of transforming 2 million random `float` values taken from a seeded `Random()`, with varying signs etc. The method above will be our baseline, and at each step we'll add a new row to our table at the bottom:
+
+Method |        Mean |         Scaled
+----------------- |------------:|----------:|
+**SortablePerValue** | 10,483.8 us |   1.00 |
+
+This gives us a good starting point.
 
 ## A negative sign of the times
 
@@ -100,7 +106,13 @@ unsafe int ToRadix (float value)
 
 A nice side-effect of this is that it is self-reversing: we can apply the exact same bit operations to convert from 1s-complement back to a sign bit.
 
-[###missing: performance data###]
+
+Method |        Mean |         Scaled
+----------------- |------------:|----------:|
+SortablePerValue | 10,483.8 us |   1.00 |
+**ToRadixPerValue** | 10,120.5 us |  0.97 |
+
+We've made a slight but measurable improvment - nothing drastic, but the code is nicer.
 
 ## Blocking ourselves out
 
@@ -127,9 +139,10 @@ someHelper.ToRadix(values, radix);
 unsafe void ToRadix(float[] source, int[] destination)
 {
     const int MSB = 1 << 31;
-    for(int i = 0 ; i < values.Length; i++)
+    for(int i = 0 ; i < source.Length; i++)
     {
-        int raw = *(int*)(&source[i]);
+        var val = source[i];
+        int raw = *(int*)(&val);
         // if sign bit set: flip all bits except the MSB
         destination[i] = (raw & MSB) == 0 ? raw : ~raw | MSB;
     }
@@ -138,7 +151,14 @@ unsafe void ToRadix(float[] source, int[] destination)
 
 How much of a speed improvement this makes depends a lot on whether the JIT managed to inline the IL from the original version. It is usually a good win by itself, but more importantly: it is a key stepping stone to further optimizations.
 
-[###missing: performance data###]
+
+Method |        Mean |         Scaled
+----------------- |------------:|----------:|
+SortablePerValue | 10,483.8 us |   1.00 |
+ToRadixPerValue | 10,120.5 us |  0.97 |
+**ToRadixBlock** | 10,080.0 us |  0.96 |     
+
+Another small improvement.
 
 ## Safely spanning the performance chasm
 
@@ -234,7 +254,15 @@ public void ToRadix(Span<uint> values, Span<uint> destination)
 
 The code is getting simpler, while retaining performance *and* becoming more generic-friendly; and we haven't needed to use a single `unsafe`. You'll have to excuse me an `Unsafe.SizeOf<T>()` - despite the name, this isn't *really* an "unsafe" operation in the usual sense - this is simply a wrapper to the `sizeof` IL instruction that is *perfectly well defined* for all `T` that are usable in generics. It just isn't directly available in safe C#.
 
-[###missing: performance data###]
+
+Method |        Mean |         Scaled
+----------------- |------------:|----------:|
+SortablePerValue | 10,483.8 us |   1.00 |
+ToRadixPerValue | 10,120.5 us |  0.97 |
+ToRadixBlock | 10,080.0 us |  0.96 |     
+**ToRadixSpan** |  7,976.3 us |  0.76 |
+
+Now we're starting to make decent imprvements - the magic of `Span<T>` is *really* useful for large operations where type coercion is necessary.
 
 ## Taking up tree surgery: prune those branches
 
@@ -295,7 +323,16 @@ public void ToRadix(Span<uint> values, Span<uint> destination)
 
 This might look more complicated, but it is **very** CPU-friendly: it pipelines very well, and doesn't involve any branches for it to worry about. Doing a few extra bit operations is *nothing* to a CPU - especially if they can be pipelined. Long instruction pipelines are actually a *good* thing to a CPU - compared to a branch or something that might involve a cache miss, at least.
 
-[###missing: performance data###]
+
+Method |        Mean |         Scaled
+----------------- |------------:|----------:|
+SortablePerValue | 10,483.8 us |   1.00 |
+ToRadixPerValue | 10,120.5 us |  0.97 |
+ToRadixBlock | 10,080.0 us |  0.96 |     
+ToRadixSpan |  7,976.3 us |  0.76 |
+**Branchless** |  2,507.0 us |   0.24 |
+
+By removing the branches, we're down to *less than a quarter* of the original run-time; that's a huge win, even if the code is slightly more complex.
 
 ## Why do one thing at a time?
 
@@ -315,7 +352,7 @@ public void ToRadix(Span<uint> values, Span<uint> destination)
     int i = 0;
     if (Vector.IsHardwareAccelerated)
     {                               
-        var vSource = source.NonPortableCast<uint, Vector<uint>>();
+        var vSource = values.NonPortableCast<uint, Vector<uint>>();
         var vDest = destination.NonPortableCast<uint, Vector<uint>>();
         
         for (int j = 0; j < vSource.Length; j++)
@@ -358,7 +395,7 @@ Where `condition` is *usually* either all-zeros or all-ones (but it doesn't have
 This intrinsic is exposed directly on `Vector`, so our missing code becomes simply:
 
     var vMSB = new Vector<uint>(MSB);
-    var vNOMSB = ~MSB;
+    var vNOMSB = ~vMSB;
     for (int j = 0; j < vSource.Length; j++)
     {
         var vec = vSource[j];
@@ -371,7 +408,19 @@ This intrinsic is exposed directly on `Vector`, so our missing code becomes simp
 
 Note that I've pre-loaded a vector with the MSB value (which creates a vector with that value in every cell), and I've switched to using a `>` test instead of a bit test and shift. Partly, this is because the vectorized eqaulity / inequality operations *expect* this kind of usage, and very kindly return `-1` as their true value - using the result to directly feed "conditional select".
 
-[###missing: performance data###]
+
+Method |        Mean |         Scaled
+----------------- |------------:|----------:|
+SortablePerValue | 10,483.8 us |   1.00 |
+ToRadixPerValue | 10,120.5 us |  0.97 |
+ToRadixBlock | 10,080.0 us |  0.96 |     
+ToRadixSpan |  7,976.3 us |  0.76 |
+Branchless |  2,507.0 us |   0.24 |
+**Vectorized** |    930.0 us |  0.09 |
+
+As you can see, the effect of vectorization on this type of code is just amazing - with us now getting more than an order-of-magnitude improvement on the original data. That's why I'm so excited about how easy (relatively speaking) `Span<T>` makes vectorization, and why I can't wait for `Span<T>` to hit production.
+
+
 
 A reasonable range of common operations are available on [`Vector`](https://msdn.microsoft.com/en-us/library/system.numerics.vector(v=vs.111).aspx) and [`Vector<T>`](https://msdn.microsoft.com/en-us/library/dn858385(v=vs.111).aspx). If you need exotic operations like "gather", you might need to wait until [`System.Runtime.Intrinsics`](https://github.com/dotnet/corefx/blob/master/src/System.Runtime.Intrinsics/ref/System.Runtime.Intrinsics.cs) lands. One key difference here is that `Vector<T>` exposes the *common intersection* of operations that might be available (with different widths) against *different* CPU instruction sets, where as `System.Runtime.Intrinsics` aims to expose the *underlying* intrinsics - giving access to the full range of instructions, but forcing you to code specifically to a chosen instruction set (or possibly having two implementations - one for AVX and one for AVX2). This is simply because there isn't a uniform API surface between generatons and vendors - it isn't simply that you get the same operations with different widths: you get different operations too. So you'd typically be checking `Aes.IsSupported`, `Avx2.IsSupported`, etc. Being realistic: `Vector<T>` is what we have *today*, and it worked damned well.
 
