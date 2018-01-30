@@ -104,7 +104,7 @@ A nice side-effect of this is that it is self-reversing: we can apply the exact 
 
 ## Blocking ourselves out
 
-We have a large chunk of data, and we want to perform a transformation on each value. So far, we've looked at a per-value transformation function (`Sortable`), but that means the overhead of a call per-value (which may or may not get inlined, depending on the complexity, and how we resolve the method - i.e. does it involve a `virtual` call to a type that isn't reliably known), and makes it hard for us to apply nuclear options to optimize.
+We have a large chunk of data, and we want to perform a transformation on each value. So far, we've looked at a per-value transformation function (`Sortable`), but that means the overhead of a call per-value (which may or may not get inlined, depending on the complexity, and how we resolve the method - i.e. does it involve a `virtual` call to a type that isn't reliably known). Additioanlly, it makes it very hard for us to apply more advanced optimizations! Blocks good.
 
 So; let's say we have our existing loop:
 
