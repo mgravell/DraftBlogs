@@ -236,7 +236,7 @@ The code is getting simpler, while retaining performance *and* becoming more gen
 
 ## Taking up tree surgery: prune those branches
 
-Something that gnaws at my soul in where we've got to is that it includes a branch - an `if` test, essentially - in the inner part of the loop. Actually, there's two and they're both hidden. The first is in the `for` loop, but the one I'm talking about here is the one hidden in the ternary condition operation, `a ? b : c`. CPUs are very clever about branching, with branch prediction and other fancy things - but it can still stall the instruction pipeline, especially if the prediction is wrong. If only there was a way to rewrite that operation to not need a branch. I'm sure you can see where this is going.
+Something that gnaws at my soul in where we've got to is that it includes a branch - an `if` test, essentially - in the inner part of the loop. Actually, there's two and they're both hidden. The first is in the `for` loop, but the one I'm talking about here is the one hidden in the ternary conditional operation, `a ? b : c`. CPUs are very clever about branching, with branch prediction and other fancy things - but it can still stall the instruction pipeline, especially if the prediction is wrong. If only there was a way to rewrite that operation to not need a branch. I'm sure you can see where this is going.
 
 Branching: bad. Bit operations: good. A common trick we can use to remove branches is to obtain a bit-mask that is either all 0s (000...000) or all 1s (111...111) - so: 0 and -1 in 2s-complement terms. There are various ways we can do that (although it also depends on the actual value of `true` in your target system, which is a surprisingly complex question). Obviously one way to do that would be:
 
